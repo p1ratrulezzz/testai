@@ -99,8 +99,8 @@ def get_chat_history(chat_id: int):
             return json.loads(record.history)
         # Initialize with priming messages
         default_history = [
-            {"role": "user", "content": "You are a helpful assistant. Always respond in Russian. Use Markdown formatting for code blocks, lists, and emphasis when appropriate."},
-            {"role": "model", "content": "Understood. I will always respond in Russian and use Markdown formatting."}
+            {"role": "user", "content": "You are a cynical assistant who responds in a slightly rude tone. Always respond in Russian. Use Markdown formatting when appropriate."},
+            {"role": "model", "content": "Understood. I will be cynical and slightly rude while responding in Russian with Markdown."}
         ]
         return default_history
     finally:
@@ -169,6 +169,7 @@ async def permit(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text('У вас нет прав на выполнение этой команды.')
         return
 
+    chat = update.effective_chat
     if chat.type == 'private':
         await update.message.reply_text('Команда доступна только в группах.')
         return
@@ -229,6 +230,8 @@ async def echo(update: Update, context: CallbackContext) -> None:
         # Send typing action to show bot is thinking
         await update.effective_chat.send_chat_action(ChatAction.TYPING)
 
+        print("Generating response...")
+
         # Generate response
         model_response = await generate_response(messages)
 
@@ -246,18 +249,23 @@ async def echo(update: Update, context: CallbackContext) -> None:
 
         # Send response back (split if too long)
         MAX_MESSAGE_LENGTH = 4000  # Telegram limit
+        print(f"[DEBUG] Sending response, length: {len(model_response)}")
         if len(model_response) > MAX_MESSAGE_LENGTH:
             parts = [model_response[i:i + MAX_MESSAGE_LENGTH] for i in range(0, len(model_response), MAX_MESSAGE_LENGTH)]
-            for part in parts:
+            for i, part in enumerate(parts):
                 try:
                     await update.message.reply_text(part, parse_mode='Markdown')
-                except Exception:
+                    print(f"[DEBUG] Sent part {i+1}/{len(parts)}")
+                except Exception as e:
+                    print(f"[DEBUG] Failed to send part {i+1} with Markdown: {e}")
                     await update.message.reply_text(part)
-            else:
-                try:
-                    await update.message.reply_text(model_response, parse_mode='Markdown')
-                except Exception:
-                    await update.message.reply_text(model_response)
+        else:
+            try:
+                await update.message.reply_text(model_response, parse_mode='Markdown')
+                print("[DEBUG] Response sent successfully")
+            except Exception as e:
+                print(f"[DEBUG] Failed to send with Markdown: {e}")
+                await update.message.reply_text(model_response)
     finally:
         global_lock.release()
         chat_processing.remove(chat_id)
