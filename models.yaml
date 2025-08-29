@@ -1,0 +1,5 @@
+models:
+  - id: grok-test  # A placeholder for a compatible open-source model
+    name: Grok Test Model
+    backend: llama.cpp  # Assuming Llama.cpp backend for LocalAI
+    parameter: {}  # Add specific parameters as needed, e.g., model path

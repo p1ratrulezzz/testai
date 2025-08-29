@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:13
+    container_name: bot_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: telegram_bot
+      POSTGRES_USER: botuser
+      POSTGRES_PASSWORD: botpassword
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    #ports:
+    #  - "5432:5432"
+    networks:
+      - bot_network
+
+  bot:
+    build: .
+    depends_on:
+      - postgres
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      ADMINS: ${ADMINS}
+      DATABASE_URL: postgresql://botuser:botpassword@postgres/telegram_bot
+    restart: unless-stopped
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    networks:
+      - bot_network
+
+volumes:
+  postgres_data:
+  hf_cache:
+
+networks:
+  bot_network:
+    driver: bridge
