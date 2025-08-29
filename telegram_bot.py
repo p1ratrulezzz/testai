@@ -161,21 +161,7 @@ async def help_command(update: Update, context: CallbackContext) -> None:
     """Send a message when the command /help is issued."""
     await update.message.reply_text('Введите сообщение, и я отвечу на него.')
 
-async def permit(update: Update, context: CallbackContext) -> None:
-    """Permit bot to respond in this group (admin only)."""
-    user_id = str(update.effective_user.id)
-
-    if user_id not in admins:
-        await update.message.reply_text('У вас нет прав на выполнение этой команды.')
-        return
-
-    chat = update.effective_chat
-    if chat.type == 'private':
-        await update.message.reply_text('Команда доступна только в группах.')
-        return
-
-    set_permission(chat.id, allowed=True)
-    await update.message.reply_text('Бот теперь может отвечать в этой группе.')
+# /permit command removed - bot now responds only to mentions in groups
 
 async def echo(update: Update, context: CallbackContext) -> None:
     """Echo the user message."""
@@ -187,12 +173,11 @@ async def echo(update: Update, context: CallbackContext) -> None:
     # Check permission for private chats (only admins)
     chat = update.effective_chat
     user_id = update.effective_user.id
-    # Check permission for private chats (only admins)
     if chat.type == 'private':
         if str(user_id) not in admins:
             return  # Ignore private messages from non-admins
 
-    # Check permission for group chats
+    # Check for mentions or replies in group chats
     if chat.type != 'private':
         bot = await context.bot.get_me()
         bot_username = bot.username.lower()
@@ -201,13 +186,20 @@ async def echo(update: Update, context: CallbackContext) -> None:
             entity.type == 'mention' and update.message.text[entity.offset:entity.offset + entity.length].lower() == '@' + bot_username
             for entity in (update.message.entities or [])
         )
-        has_perm = check_permission(chat.id)
 
         # Check if message is reply to bot
         reply_to = update.message.reply_to_message
         is_reply_to_bot = reply_to and reply_to.from_user and reply_to.from_user.id == context.bot.id
 
-        if not has_perm and not is_mentioned and not is_reply_to_bot:
+        if not is_mentioned and not is_reply_to_bot:
+            return  # Ignore messages in groups without mention or reply
+
+        # Check if message is reply to bot
+        reply_to = update.message.reply_to_message
+        is_reply_to_bot = reply_to and reply_to.from_user and reply_to.from_user.id == context.bot.id
+
+        if not is_mentioned and not is_reply_to_bot:
+            return  # Ignore messages in groups without mention or reply
             return  # Ignore messages in groups without permission or mention
 
     # Check if already processing this chat
@@ -281,7 +273,7 @@ def main() -> None:
     # on different commands - answer in Telegram
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("permit", permit))
+    # No /permit command - bot responds to mentions only
 
     # on non command i.e message - echo the message on Telegram
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
