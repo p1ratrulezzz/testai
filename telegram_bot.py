@@ -6,7 +6,7 @@ import logging
 import re
 import asyncio
 import json
-from telegram import Update
+from telegram import Update, ReplyParameters
 from telegram.constants import ChatAction
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from sqlalchemy import create_engine, Column, String, Text, Boolean, Integer
@@ -141,6 +141,8 @@ def set_permission(chat_id: int, allowed=True):
         session.close()
 
 async def generate_response(messages):
+    user_message = messages[-1]['content'] if len(messages) > 1 else ""
+    print(f"[DEBUG] Generating response for message: {user_message[:20]}...")
     # Get response from the model
     output = await asyncio.to_thread(lambda: pipe(messages, **generation_args))
     model_response = output[0]['generated_text'].strip()
@@ -206,6 +208,10 @@ async def echo(update: Update, context: CallbackContext) -> None:
         is_reply_to_bot = reply_to and reply_to.from_user and reply_to.from_user.id == context.bot.id
 
         has_perm = check_permission(chat.id)
+        print(f"[DEBUG] Reply to message: {update.message.reply_to_message}")
+        print(f"[DEBUG] Reply to bot: {is_reply_to_bot}")
+        print(f"[DEBUG] Has perm: {has_perm}")
+        print(f"[DEBUG] Is mentioned: {is_mentioned}")
         if not has_perm and not is_mentioned and not is_reply_to_bot:
             return  # Ignore messages in groups without permission, mention or reply
 
@@ -231,6 +237,11 @@ async def echo(update: Update, context: CallbackContext) -> None:
         # Add user message to history
         messages.append({"role": "user", "content": user_message})
 
+        # Include reply context if available
+        if update.message.reply_to_message and update.message.reply_to_message.text:
+            reply_text = update.message.reply_to_message.text[:300]  # Limit length
+            messages[-1]["content"] = f"Reply to: {reply_text}\n\n{messages[-1]['content']}"
+
         # Acquire global lock for generation
         await global_lock.acquire()
 
@@ -254,6 +265,13 @@ async def echo(update: Update, context: CallbackContext) -> None:
         # Send typing before response
         await update.effective_chat.send_chat_action(ChatAction.TYPING)
 
+        # Determine reply target
+        reply_params = None
+        print(f"[DEBUG] Before reply params: reply_to_message={update.message.reply_to_message}, is_mentioned={is_mentioned}")
+        if update.message.reply_to_message and is_mentioned:
+            reply_params = ReplyParameters(message_id=update.message.reply_to_message.message_id)
+            print(f"[DEBUG] Set reply params: {reply_params}")
+
         # Send response back (split if too long)
         MAX_MESSAGE_LENGTH = 4000  # Telegram limit
         print(f"[DEBUG] Sending response, length: {len(model_response)}")
@@ -261,18 +279,18 @@ async def echo(update: Update, context: CallbackContext) -> None:
             parts = [model_response[i:i + MAX_MESSAGE_LENGTH] for i in range(0, len(model_response), MAX_MESSAGE_LENGTH)]
             for i, part in enumerate(parts):
                 try:
-                    await update.message.reply_text(part, parse_mode='Markdown')
+                    await update.message.reply_text(part, parse_mode='Markdown', reply_parameters=reply_params)
                     print(f"[DEBUG] Sent part {i+1}/{len(parts)}")
                 except Exception as e:
                     print(f"[DEBUG] Failed to send part {i+1} with Markdown: {e}")
-                    await update.message.reply_text(part)
+                    await update.message.reply_text(part, reply_parameters=reply_params)
         else:
             try:
-                await update.message.reply_text(model_response, parse_mode='Markdown')
+                await update.message.reply_text(model_response, parse_mode='Markdown', reply_parameters=reply_params)
                 print("[DEBUG] Response sent successfully")
             except Exception as e:
                 print(f"[DEBUG] Failed to send with Markdown: {e}")
-                await update.message.reply_text(model_response)
+                await update.message.reply_text(model_response, reply_parameters=reply_params)
     finally:
         global_lock.release()
         chat_processing.remove(chat_id)
